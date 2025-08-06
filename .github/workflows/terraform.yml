@@ -62,7 +62,7 @@ jobs:
         jq -r '.resource_changes[]? | select(.change.actions[0] == "delete") | .address' plan.json >> plan_summary.txt || echo "None" >> plan_summary.txt
 
     - name: Upload Plan Summary Artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: terraform-plan-summary
         path: plan_summary.txt
