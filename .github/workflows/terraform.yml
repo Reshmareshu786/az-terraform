@@ -3,7 +3,7 @@ name: 'Terraform Azure Deployment'
 on:
   push:
     branches:
-    - main
+      - main
 
 permissions:
   id-token: write
@@ -14,54 +14,67 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout Code
-      uses: actions/checkout@v3
+      - name: Checkout Code
+        uses: actions/checkout@v3
 
-    - name: Set up Terraform
-      uses: hashicorp/setup-terraform@v2
-      with:
-        terraform_version: 1.5.0
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: 1.5.0
 
-    - name: Azure Login via JSON credentials
-      uses: azure/login@v1
-      with:
-        creds: ${{ secrets.AZURE_CREDENTIALS }}
-        auth-type: 'service_principal'
-        environment: 'azurecloud'
+      - name: Azure Login via JSON credentials
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+          auth-type: 'service_principal'
+          environment: 'azurecloud'
 
-    - name: Export Azure credentials to environment for Terraform
-      run: |
-        echo "ARM_CLIENT_ID=${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}" >> $GITHUB_ENV
-        echo "ARM_CLIENT_SECRET=${{ fromJson(secrets.AZURE_CREDENTIALS).clientSecret }}" >> $GITHUB_ENV
-        echo "ARM_SUBSCRIPTION_ID=${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}" >> $GITHUB_ENV
-        echo "ARM_TENANT_ID=${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}" >> $GITHUB_ENV
+      - name: Export Azure credentials to environment for Terraform
+        run: |
+          echo "ARM_CLIENT_ID=${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}" >> $GITHUB_ENV
+          echo "ARM_CLIENT_SECRET=${{ fromJson(secrets.AZURE_CREDENTIALS).clientSecret }}" >> $GITHUB_ENV
+          echo "ARM_SUBSCRIPTION_ID=${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}" >> $GITHUB_ENV
+          echo "ARM_TENANT_ID=${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}" >> $GITHUB_ENV
 
-    - name: Terraform Init
-      run: terraform init
+      - name: Terraform Init
+        run: terraform init
 
-    - name: Terraform Plan
-      run: terraform plan -out=tfplan
+      - name: Terraform Plan
+        run: terraform plan -out=tfplan
 
-    - name: Export Plan JSON
-      run: terraform show -json tfplan > plan.json
+      - name: Export Plan JSON
+        run: terraform show -json tfplan > plan.json
 
-    - name: Generate Plan Summary File
-      run: |
-        echo "Resources to be CREATED:" > plan_summary.txt
-        jq -r '.resource_changes[] | select(.change.actions[] == "create") | .address' plan.json >> plan_summary.txt
+      - name: Generate Plan Summary File
+        run: |
+          if [ ! -s plan.json ]; then
+            echo "No changes detected, plan file 'plan.json' is missing or empty." > plan_summary.txt
+          else
+            echo "Resources to be CREATED:" > plan_summary.txt
+            jq -r '
+              if .resource_changes != null then
+                .resource_changes[] | select(.change.actions[] == "create") | .address
+              else empty end' plan.json >> plan_summary.txt
 
-        echo -e "\nResources to be UPDATED:" >> plan_summary.txt
-        jq -r '.resource_changes[] | select(.change.actions[] == "update") | .address' plan.json >> plan_summary.txt
+            echo -e "\nResources to be UPDATED:" >> plan_summary.txt
+            jq -r '
+              if .resource_changes != null then
+                .resource_changes[] | select(.change.actions[] == "update") | .address
+              else empty end' plan.json >> plan_summary.txt
 
-        echo -e "\nResources to be DELETED:" >> plan_summary.txt
-        jq -r '.resource_changes[] | select(.change.actions[] == "delete") | .address' plan.json >> plan_summary.txt
+            echo -e "\nResources to be DELETED:" >> plan_summary.txt
+            jq -r '
+              if .resource_changes != null then
+                .resource_changes[] | select(.change.actions[] == "delete") | .address
+              else empty end' plan.json >> plan_summary.txt
+          fi
 
-    - name: Upload Plan Summary Artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: terraform-plan-summary
-        path: plan_summary.txt
+      - name: Upload Plan Summary Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-plan-summary
+          path: plan_summary.txt
 
-    - name: Terraform Apply
-      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-      run: terraform apply -auto-approve tfplan
+      - name: Terraform Apply
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: terraform apply -auto-approve tfplan
